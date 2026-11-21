@@ -1,7 +1,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { extractDbErrorMessage, getDb, testDatabaseConnection } from '../../db/index.ts';
+import { extractDbErrorMessage, testDatabaseConnection } from '../../db/index.ts';
 import {
   fleetAlerts,
   robotActivityColumns,
@@ -9,7 +9,12 @@ import {
   robots,
   zoneMetrics,
 } from '../../db/schema.ts';
-import { type AuthenticatedRequest, requireUserAuth } from '../auth.ts';
+import {
+  type AuthenticatedRequest,
+  requireReadAuth,
+  requireRole,
+  requireUserAuth,
+} from '../auth.ts';
 
 const ZONES = [
   'Warehouse A: Zone B',
@@ -52,7 +57,7 @@ dashboardRouter.get('/health', async (_req, res) => {
   });
 });
 
-dashboardRouter.get('/dashboard', async (req, res) => {
+dashboardRouter.get('/dashboard', requireReadAuth, async (req: AuthenticatedRequest, res) => {
   const parsed = dashboardQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid zone or dateRange query parameter' });
@@ -60,14 +65,7 @@ dashboardRouter.get('/dashboard', async (req, res) => {
   }
 
   const { zone, dateRange } = parsed.data;
-  const db = getDb();
-
-  if (!db) {
-    res.status(503).json({
-      error: 'Database is not configured. Configure PostgreSQL environment variables.',
-    });
-    return;
-  }
+  const db = req.db!;
 
   try {
     const [metricRows, robotRows, activityRows, alertRows] = await Promise.all([
@@ -143,12 +141,8 @@ dashboardRouter.get('/dashboard', async (req, res) => {
   }
 });
 
-dashboardRouter.get('/robots', async (_req, res) => {
-  const db = getDb();
-  if (!db) {
-    res.status(503).json({ error: 'Database is not configured' });
-    return;
-  }
+dashboardRouter.get('/robots', requireReadAuth, async (req: AuthenticatedRequest, res) => {
+  const db = req.db!;
 
   try {
     const rows = await db
@@ -164,13 +158,9 @@ dashboardRouter.get('/robots', async (_req, res) => {
   }
 });
 
-dashboardRouter.get('/robots/:id', async (req, res) => {
+dashboardRouter.get('/robots/:id', requireReadAuth, async (req: AuthenticatedRequest, res) => {
   const robotId = req.params.id;
-  const db = getDb();
-  if (!db) {
-    res.status(503).json({ error: 'Database is not configured' });
-    return;
-  }
+  const db = req.db!;
 
   try {
     const [robot] = await db.select().from(robots).where(eq(robots.id, robotId)).limit(1);
@@ -195,7 +185,11 @@ dashboardRouter.get('/robots/:id', async (req, res) => {
   }
 });
 
-dashboardRouter.patch('/robots/:id/status', requireUserAuth, async (req: AuthenticatedRequest, res) => {
+dashboardRouter.patch(
+  '/robots/:id/status',
+  requireUserAuth,
+  requireRole('admin', 'operator'),
+  async (req: AuthenticatedRequest, res) => {
   const parsed = patchRobotStatusSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid status update payload', details: parsed.error.flatten() });
@@ -255,6 +249,7 @@ dashboardRouter.patch('/robots/:id/status', requireUserAuth, async (req: Authent
 dashboardRouter.patch(
   '/alerts/:id/acknowledge',
   requireUserAuth,
+  requireRole('admin', 'operator'),
   async (req: AuthenticatedRequest, res) => {
     const alertId = Number(req.params.id);
     if (!Number.isInteger(alertId) || alertId <= 0) {

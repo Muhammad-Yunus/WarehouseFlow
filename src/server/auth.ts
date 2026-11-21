@@ -1,15 +1,17 @@
 import crypto from 'node:crypto';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, lt } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { extractDbErrorMessage, getDb, type Database } from '../db/index.ts';
 import { apiKeys, authSessions, users } from '../db/schema.ts';
+
+export type UserRole = 'admin' | 'operator' | 'viewer';
 
 export interface AuthUser {
   id: number;
   email: string;
   fullName: string;
   jobTitle: string;
-  role: string;
+  role: UserRole;
 }
 
 export interface IngestPrincipal {
@@ -31,7 +33,14 @@ export interface AuthenticatedRequest extends Request {
 const SESSION_SECRET =
   process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim().length >= 16
     ? process.env.SESSION_SECRET.trim()
-    : crypto.randomBytes(32).toString('hex');
+    : (() => {
+        if (process.env.NODE_ENV === 'production') {
+          console.warn(
+            '[WirehouseFlow] SESSION_SECRET not set in production; using ephemeral runtime signing key.'
+          );
+        }
+        return crypto.randomBytes(32).toString('hex');
+      })();
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 
@@ -161,6 +170,21 @@ export function requireDatabase(
   next();
 }
 
+function normalizeRole(role: string): UserRole {
+  if (role === 'admin' || role === 'operator' || role === 'viewer') {
+    return role;
+  }
+  return 'viewer';
+}
+
+export async function pruneExpiredSessions(db: Database): Promise<void> {
+  try {
+    await db.delete(authSessions).where(lt(authSessions.expiresAt, new Date()));
+  } catch {
+    // Non-fatal background maintenance
+  }
+}
+
 async function resolveBearerUser(
   db: Database,
   rawToken: string
@@ -195,7 +219,7 @@ async function resolveBearerUser(
       email: row.email,
       fullName: row.fullName,
       jobTitle: row.jobTitle,
-      role: row.role,
+      role: normalizeRole(row.role),
     },
     tokenHash,
   };
@@ -232,6 +256,101 @@ export async function requireUserAuth(
     const { message, isConnectionError } = extractDbErrorMessage(err);
     res.status(isConnectionError ? 503 : 500).json({
       error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Authentication verification failed',
+    });
+  }
+}
+
+export function requireRole(...allowedRoles: UserRole[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    if (!allowedRoles.includes(req.authUser.role)) {
+      res.status(403).json({
+        error: `Forbidden: requires role ${allowedRoles.join(' or ')}`,
+      });
+      return;
+    }
+    next();
+  };
+}
+
+export async function requireReadAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const db = req.db ?? getDb();
+  if (!db) {
+    res.status(503).json({ error: 'Database is not configured' });
+    return;
+  }
+  req.db = db;
+
+  const bearerToken = extractBearerToken(req);
+  const headerApiKey =
+    typeof req.headers['x-api-key'] === 'string' ? req.headers['x-api-key'].trim() : null;
+
+  const candidateKey =
+    headerApiKey || (bearerToken && bearerToken.startsWith('wf_live_') ? bearerToken : null);
+
+  try {
+    if (candidateKey) {
+      const keyHash = hashToken(candidateKey);
+      const found = await db
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.revoked, false)))
+        .limit(1);
+
+      if (found.length === 0) {
+        res.status(401).json({ error: 'Invalid or revoked API key' });
+        return;
+      }
+
+      const keyRow = found[0];
+      const scopes = keyRow.scopes.split(',').map((s) => s.trim());
+      if (!scopes.includes('fleet:read')) {
+        res.status(403).json({ error: 'API key lacks fleet:read scope' });
+        return;
+      }
+
+      await db
+        .update(apiKeys)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(apiKeys.id, keyRow.id));
+
+      req.ingestPrincipal = {
+        type: 'api_key',
+        userId: keyRow.createdBy ?? null,
+        apiKeyId: keyRow.id,
+        label: `key:${keyRow.keyPrefix}`,
+        scopes,
+      };
+      next();
+      return;
+    }
+
+    if (bearerToken) {
+      const resolved = await resolveBearerUser(db, bearerToken);
+      if (!resolved) {
+        res.status(401).json({ error: 'Invalid or expired session token' });
+        return;
+      }
+      req.authUser = resolved.user;
+      req.authTokenHash = resolved.tokenHash;
+      next();
+      return;
+    }
+
+    res.status(401).json({
+      error: 'Authentication required. Sign in or provide a valid API key.',
+    });
+  } catch (err) {
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    res.status(isConnectionError ? 503 : 500).json({
+      error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Read authentication failed',
     });
   }
 }
@@ -296,6 +415,12 @@ export async function requireIngestAuth(
       const resolved = await resolveBearerUser(db, bearerToken);
       if (!resolved) {
         res.status(401).json({ error: 'Invalid or expired session token' });
+        return;
+      }
+      if (resolved.user.role !== 'admin') {
+        res.status(403).json({
+          error: 'Forbidden: only admin sessions or scoped ingest API keys can write telemetry.',
+        });
         return;
       }
       req.authUser = resolved.user;

@@ -23,7 +23,7 @@ interface TopBarProps {
   authToken: string | null;
   setupStatus: AuthSetupStatus | null;
   onAuthSuccess: (token: string, user: AuthUser) => void;
-  onLogout: () => Promise<void>;
+  onLogout: (allSessions?: boolean) => Promise<void>;
   onDataRefresh: () => Promise<void>;
 }
 
@@ -57,9 +57,10 @@ export function TopBar({
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [authTab, setAuthTab] = useState<'login' | 'register' | 'passcode'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passcode, setPasscode] = useState('');
   const [fullName, setFullName] = useState('Lorenzo Ruiz');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -70,9 +71,17 @@ export function TopBar({
   const [copiedKey, setCopiedKey] = useState(false);
   const [ingestFeedback, setIngestFeedback] = useState<string | null>(null);
 
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'operator' | 'viewer' | 'admin'>('operator');
+  const [userProvisionMsg, setUserProvisionMsg] = useState<string | null>(null);
+
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const unreadCount = alerts.filter((a) => !a.acknowledged).length;
+  const isAdmin = authUser?.role === 'admin';
+  const canMutate = authUser?.role === 'admin' || authUser?.role === 'operator';
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -86,7 +95,13 @@ export function TopBar({
   }, []);
 
   useEffect(() => {
-    if (!profileOpen || !authToken) return;
+    if (setupStatus?.hasPasscodeEnv && (setupStatus.userCount ?? 0) === 0 && !authUser) {
+      setAuthTab('passcode');
+    }
+  }, [setupStatus?.hasPasscodeEnv, setupStatus?.userCount, authUser]);
+
+  useEffect(() => {
+    if (!profileOpen || !authToken || !isAdmin) return;
     fetch('/api/auth/api-keys', {
       headers: { Authorization: `Bearer ${authToken}` },
     })
@@ -95,7 +110,7 @@ export function TopBar({
         if (data?.keys) setApiKeys(data.keys);
       })
       .catch(() => {});
-  }, [profileOpen, authToken]);
+  }, [profileOpen, authToken, isAdmin]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,9 +126,11 @@ export function TopBar({
 
       const body = isBootstrap
         ? { email, password, fullName: fullName.trim() || 'Lorenzo Ruiz', jobTitle: 'Fleet Manager' }
-        : authTab === 'register'
-          ? { email, password, fullName: fullName.trim() || 'Fleet Operator', jobTitle: 'Fleet Operator' }
-          : { email, password };
+        : authTab === 'passcode'
+          ? { passcode }
+          : authTab === 'register'
+            ? { email, password, fullName: fullName.trim() || 'Fleet Viewer', jobTitle: 'Fleet Viewer' }
+            : { email, password };
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -126,12 +143,52 @@ export function TopBar({
         return;
       }
       setPassword('');
+      setPasscode('');
       onAuthSuccess(data.token, data.user);
       await onDataRefresh();
     } catch {
       setAuthError('Unable to reach authentication server');
     } finally {
       setAuthBusy(false);
+    }
+  };
+
+  const handleProvisionUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authToken || !isAdmin) return;
+    setUserProvisionMsg(null);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          email: newUserEmail,
+          fullName: newUserName,
+          password: newUserPassword,
+          role: newUserRole,
+          jobTitle:
+            newUserRole === 'admin'
+              ? 'Fleet Manager'
+              : newUserRole === 'operator'
+                ? 'Fleet Operator'
+                : 'Fleet Viewer',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error || 'Failed to create user');
+        return;
+      }
+      setNewUserEmail('');
+      setNewUserName('');
+      setNewUserPassword('');
+      setUserProvisionMsg(`Created ${data.user.role}: ${data.user.email}`);
+    } catch {
+      setAuthError('Failed to create user account');
     }
   };
 
@@ -317,7 +374,7 @@ export function TopBar({
                       <p className="font-medium text-[#232524] truncate">{alert.title}</p>
                       <p className="text-[#787b75] text-[11px]">{alert.description}</p>
                     </div>
-                    {authToken && !alert.acknowledged && (
+                    {canMutate && !alert.acknowledged && (
                       <button
                         type="button"
                         onClick={() => void onAcknowledgeAlert(alert.id)}
@@ -375,14 +432,14 @@ export function TopBar({
                 {authUser?.fullName ?? 'Lorenzo Ruiz'}
               </div>
               <div className="text-[10.5px] text-[#757872] whitespace-nowrap">
-                {authUser ? `${authUser.jobTitle} · Verified` : 'Fleet Manager'}
+                {authUser ? `${authUser.jobTitle} · ${authUser.role}` : 'Sign in required'}
               </div>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-[#5e625c] shrink-0" />
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 mt-2 w-[310px] rounded-2xl bg-white/95 border border-white shadow-[0_18px_42px_rgba(20,24,18,0.15)] p-3.5 z-50 text-[#212422]">
+            <div className="absolute right-0 mt-2 w-[320px] rounded-2xl bg-white/95 border border-white shadow-[0_18px_42px_rgba(20,24,18,0.15)] p-3.5 z-50 text-[#212422] max-h-[82vh] overflow-y-auto">
               {!setupStatus?.dbConnected ? (
                 <div className="text-[12px] space-y-1.5">
                   <div className="font-semibold text-[#1f2120]">PostgreSQL Connection Pending</div>
@@ -400,166 +457,280 @@ export function TopBar({
                 </div>
               ) : authUser ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#ecece7]">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#ecece7]">
                     <div className="min-w-0">
                       <div className="text-[12.5px] font-semibold truncate">{authUser.fullName}</div>
-                      <div className="text-[11px] text-[#757872] truncate">{authUser.email}</div>
+                      <div className="text-[11px] text-[#757872] truncate">
+                        {authUser.email} · <span className="uppercase">{authUser.role}</span>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void onLogout()}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#f5f5f2] hover:bg-[#ecece7] text-[11px] font-medium cursor-pointer"
-                    >
-                      <LogOut className="w-3 h-3" />
-                      <span>Sign out</span>
-                    </button>
-                  </div>
-
-                  {/* Quick Live Telemetry Ingest Verification */}
-                  <div className="space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void handleSendSampleTelemetry()}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-[#f05a36] hover:bg-[#de4c29] text-white text-[12px] font-medium cursor-pointer transition-colors"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Ingest Live Telemetry Pulse</span>
-                    </button>
-                    {ingestFeedback && (
-                      <p className="text-[11px] text-[#358a4b] text-center">{ingestFeedback}</p>
-                    )}
-                  </div>
-
-                  {/* Ingest API Keys */}
-                  <div className="pt-2 border-t border-[#ecece7] space-y-2">
-                    <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#2b2e2b]">
-                      <KeyRound className="w-3.5 h-3.5 text-[#f05a36]" />
-                      <span>Ingest API Keys</span>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        value={newKeyName}
-                        onChange={(e) => setNewKeyName(e.target.value)}
-                        placeholder="Key label"
-                        className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#f5f5f2] text-[11.5px] focus:outline-none"
-                      />
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        onClick={() => void handleCreateApiKey()}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#212422] text-white text-[11px] font-medium cursor-pointer shrink-0"
+                        onClick={() => void onLogout(false)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#f5f5f2] hover:bg-[#ecece7] text-[11px] font-medium cursor-pointer"
                       >
-                        Create
+                        <LogOut className="w-3 h-3" />
+                        <span>Sign out</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onLogout(true)}
+                        title="Revoke all active sessions"
+                        className="px-2 py-1 rounded-full bg-[#f5f5f2] hover:bg-[#ecece7] text-[10.5px] text-[#666963] cursor-pointer"
+                      >
+                        All
                       </button>
                     </div>
+                  </div>
 
-                    {revealedKey && (
-                      <div className="p-2 rounded-xl bg-[#faf8f4] border border-[#e7e4dc] space-y-1">
-                        <div className="text-[10.5px] text-[#666963]">
-                          Copy now (shown once) for <code className="font-mono">X-API-Key</code>:
+                  {isAdmin ? (
+                    <>
+                      {/* Quick Live Telemetry Ingest Verification (Admin only) */}
+                      <div className="space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void handleSendSampleTelemetry()}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-[#f05a36] hover:bg-[#de4c29] text-white text-[12px] font-medium cursor-pointer transition-colors"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Ingest Live Telemetry Pulse</span>
+                        </button>
+                        {ingestFeedback && (
+                          <p className="text-[11px] text-[#358a4b] text-center">{ingestFeedback}</p>
+                        )}
+                      </div>
+
+                      {/* Ingest API Keys (Admin only) */}
+                      <div className="pt-2 border-t border-[#ecece7] space-y-2">
+                        <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#2b2e2b]">
+                          <KeyRound className="w-3.5 h-3.5 text-[#f05a36]" />
+                          <span>Ingest API Keys</span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <code className="text-[10.5px] font-mono truncate flex-1">{revealedKey}</code>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={newKeyName}
+                            onChange={(e) => setNewKeyName(e.target.value)}
+                            placeholder="Key label"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#f5f5f2] text-[11.5px] focus:outline-none"
+                          />
                           <button
                             type="button"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(revealedKey);
-                              setCopiedKey(true);
-                              setTimeout(() => setCopiedKey(false), 1500);
-                            }}
-                            className="p-1 rounded bg-white border border-[#e3e2dc] cursor-pointer"
-                            title="Copy API key"
+                            onClick={() => void handleCreateApiKey()}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#212422] text-white text-[11px] font-medium cursor-pointer shrink-0"
                           >
-                            {copiedKey ? (
-                              <Check className="w-3 h-3 text-[#358a4b]" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
+                            Create
                           </button>
                         </div>
-                      </div>
-                    )}
 
-                    <div className="space-y-1 max-h-24 overflow-y-auto">
-                      {apiKeys
-                        .filter((k) => !k.revoked)
-                        .map((k) => (
-                          <div
-                            key={k.id}
-                            className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg bg-[#f7f6f2]"
-                          >
-                            <span className="truncate">
-                              {k.name} <span className="text-[#8a8d87]">({k.keyPrefix}…)</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => void handleRevokeKey(k.id)}
-                              className="text-[#c75035] hover:underline ml-2 shrink-0 cursor-pointer"
-                            >
-                              Revoke
-                            </button>
+                        {revealedKey && (
+                          <div className="p-2 rounded-xl bg-[#faf8f4] border border-[#e7e4dc] space-y-1">
+                            <div className="text-[10.5px] text-[#666963]">
+                              Copy now (shown once) for <code className="font-mono">X-API-Key</code>:
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <code className="text-[10.5px] font-mono truncate flex-1">{revealedKey}</code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(revealedKey);
+                                  setCopiedKey(true);
+                                  setTimeout(() => setCopiedKey(false), 1500);
+                                }}
+                                className="p-1 rounded bg-white border border-[#e3e2dc] cursor-pointer"
+                                title="Copy API key"
+                              >
+                                {copiedKey ? (
+                                  <Check className="w-3 h-3 text-[#358a4b]" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                            </div>
                           </div>
-                        ))}
-                    </div>
-                  </div>
+                        )}
+
+                        <div className="space-y-1 max-h-24 overflow-y-auto">
+                          {apiKeys
+                            .filter((k) => !k.revoked)
+                            .map((k) => (
+                              <div
+                                key={k.id}
+                                className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg bg-[#f7f6f2]"
+                              >
+                                <span className="truncate">
+                                  {k.name} <span className="text-[#8a8d87]">({k.keyPrefix}…)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRevokeKey(k.id)}
+                                  className="text-[#c75035] hover:underline ml-2 shrink-0 cursor-pointer"
+                                >
+                                  Revoke
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+
+                      {/* Admin User Provisioning */}
+                      <form
+                        onSubmit={(e) => void handleProvisionUser(e)}
+                        className="pt-2 border-t border-[#ecece7] space-y-1.5"
+                      >
+                        <div className="text-[11.5px] font-semibold text-[#2b2e2b]">
+                          Provision Team Account
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <input
+                            type="text"
+                            required
+                            value={newUserName}
+                            onChange={(e) => setNewUserName(e.target.value)}
+                            placeholder="Full name"
+                            className="px-2.5 py-1 rounded-lg bg-[#f5f5f2] text-[11px] focus:outline-none"
+                          />
+                          <select
+                            value={newUserRole}
+                            onChange={(e) =>
+                              setNewUserRole(e.target.value as 'operator' | 'viewer' | 'admin')
+                            }
+                            className="px-2 py-1 rounded-lg bg-[#f5f5f2] text-[11px] focus:outline-none"
+                          >
+                            <option value="operator">Operator</option>
+                            <option value="viewer">Viewer</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </div>
+                        <input
+                          type="email"
+                          required
+                          value={newUserEmail}
+                          onChange={(e) => setNewUserEmail(e.target.value)}
+                          placeholder="Email address"
+                          className="w-full px-2.5 py-1 rounded-lg bg-[#f5f5f2] text-[11px] focus:outline-none"
+                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="password"
+                            required
+                            minLength={8}
+                            value={newUserPassword}
+                            onChange={(e) => setNewUserPassword(e.target.value)}
+                            placeholder="Password (min 8 chars)"
+                            className="flex-1 min-w-0 px-2.5 py-1 rounded-lg bg-[#f5f5f2] text-[11px] focus:outline-none"
+                          />
+                          <button
+                            type="submit"
+                            className="px-2.5 py-1 rounded-lg bg-[#212422] text-white text-[11px] font-medium cursor-pointer shrink-0"
+                          >
+                            Add
+                          </button>
+                        </div>
+                        {userProvisionMsg && (
+                          <p className="text-[10.5px] text-[#358a4b]">{userProvisionMsg}</p>
+                        )}
+                        {authError && <p className="text-[10.5px] text-[#c75035]">{authError}</p>}
+                      </form>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-[#666963] leading-relaxed">
+                      Signed in with <span className="font-semibold">{authUser.role}</span> permissions.
+                      {canMutate
+                        ? ' You can acknowledge fleet alerts and update robot status.'
+                        : ' Read-only telemetry & export access enabled.'}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={(e) => void handleAuthSubmit(e)} className="space-y-2.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-[12.5px] font-semibold">
                       {setupStatus.needsBootstrap
                         ? 'Claim Initial Admin Account'
-                        : authTab === 'register'
-                          ? 'Create Operator Account'
-                          : 'Operator Sign In'}
+                        : authTab === 'passcode'
+                          ? 'Admin Passcode Sign In'
+                          : authTab === 'register'
+                            ? 'Create Viewer Account'
+                            : 'Operator Sign In'}
                     </span>
                     {!setupStatus.needsBootstrap && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthTab((t) => (t === 'login' ? 'register' : 'login'));
-                          setAuthError(null);
-                        }}
-                        className="text-[11px] text-[#f05a36] font-medium cursor-pointer"
-                      >
-                        {authTab === 'login' ? 'Register' : 'Sign In'}
-                      </button>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        {setupStatus.hasPasscodeEnv && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthTab((t) => (t === 'passcode' ? 'login' : 'passcode'));
+                              setAuthError(null);
+                            }}
+                            className="text-[#f05a36] font-medium cursor-pointer"
+                          >
+                            {authTab === 'passcode' ? 'Email Login' : 'Passcode'}
+                          </button>
+                        )}
+                        {setupStatus.allowPublicRegistration && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthTab((t) => (t === 'register' ? 'login' : 'register'));
+                              setAuthError(null);
+                            }}
+                            className="text-[#5e625c] font-medium cursor-pointer"
+                          >
+                            {authTab === 'register' ? 'Sign In' : 'Register'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {(setupStatus.needsBootstrap || authTab === 'register') && (
+                  {authTab === 'passcode' && !setupStatus.needsBootstrap ? (
                     <input
-                      type="text"
+                      type="password"
                       required
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Full Name"
+                      value={passcode}
+                      onChange={(e) => setPasscode(e.target.value)}
+                      placeholder="Enter ADMIN_PASSCODE"
                       className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
                     />
+                  ) : (
+                    <>
+                      {(setupStatus.needsBootstrap || authTab === 'register') && (
+                        <input
+                          type="text"
+                          required
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder="Full Name"
+                          className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
+                        />
+                      )}
+
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Email address"
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
+                      />
+
+                      <input
+                        type="password"
+                        required
+                        minLength={setupStatus.needsBootstrap || authTab === 'register' ? 8 : 1}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder={
+                          setupStatus.needsBootstrap || authTab === 'register'
+                            ? 'Password (min 8 chars)'
+                            : 'Password'
+                        }
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
+                      />
+                    </>
                   )}
-
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email address"
-                    className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
-                  />
-
-                  <input
-                    type="password"
-                    required
-                    minLength={setupStatus.needsBootstrap || authTab === 'register' ? 8 : 1}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={
-                      setupStatus.needsBootstrap || authTab === 'register'
-                        ? 'Password (min 8 chars)'
-                        : 'Password'
-                    }
-                    className="w-full px-3 py-1.5 rounded-xl bg-[#f5f5f2] text-[12px] focus:outline-none"
-                  />
 
                   {authError && <p className="text-[11px] text-[#c75035]">{authError}</p>}
 

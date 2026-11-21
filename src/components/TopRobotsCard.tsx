@@ -6,6 +6,7 @@ interface TopRobotsCardProps {
   robots: RobotUnit[];
   selectedRobotId: string | null;
   onSelectRobot: (id: string) => void;
+  isAuthenticated?: boolean;
 }
 
 function RobotThumbnail({ hasCargo }: { hasCargo: boolean }) {
@@ -76,6 +77,7 @@ export function TopRobotsCard({
   robots,
   selectedRobotId,
   onSelectRobot,
+  isAuthenticated = false,
 }: TopRobotsCardProps) {
   const [period, setPeriod] = useState<'Month' | 'Week'>('Month');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Picking'>('All');
@@ -136,7 +138,9 @@ export function TopRobotsCard({
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={4} className="py-6 text-center text-[12px] text-[#8a8d87]">
-                  Waiting for telemetry ingest from PostgreSQL...
+                  {!isAuthenticated
+                    ? 'Sign in via profile menu to view live PostgreSQL telemetry...'
+                    : 'Waiting for telemetry ingest from PostgreSQL...'}
                 </td>
               </tr>
             ) : (

@@ -54,12 +54,14 @@ export interface FleetAlert {
   createdAt: string;
 }
 
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
 export interface AuthUser {
   id: number;
   email: string;
   fullName: string;
   jobTitle: string;
-  role: string;
+  role: UserRole;
 }
 
 export interface AuthSetupStatus {
@@ -67,6 +69,9 @@ export interface AuthSetupStatus {
   dbConnected: boolean;
   needsBootstrap: boolean;
   hasPasscodeEnv: boolean;
+  authRequired?: boolean;
+  allowPublicRegistration?: boolean;
+  userCount?: number;
   error?: string;
 }
 

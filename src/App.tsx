@@ -63,48 +63,66 @@ export default function App() {
     return false;
   }, []);
 
-  const fetchDashboardData = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ zone, dateRange });
-      const res = await fetch(`/api/dashboard?${params.toString()}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.metrics) setMetrics(data.metrics);
-      if (Array.isArray(data.robots)) setRobots(data.robots);
-      if (Array.isArray(data.activityColumns)) setActivityColumns(data.activityColumns);
-      if (Array.isArray(data.alerts)) setAlerts(data.alerts);
-    } catch {
-      // Preserve last valid frame if transient network error occurs
-    }
-  }, [zone, dateRange]);
+  const fetchDashboardData = useCallback(
+    async (tokenOverride?: string) => {
+      const activeToken = tokenOverride ?? authToken;
+      if (!activeToken) return;
+      try {
+        const params = new URLSearchParams({ zone, dateRange });
+        const res = await fetch(`/api/dashboard?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+        if (res.status === 401) {
+          setAuthToken(null);
+          setAuthUser(null);
+          setMetrics(EMPTY_METRICS);
+          setRobots([]);
+          setActivityColumns([]);
+          setAlerts([]);
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.metrics) setMetrics(data.metrics);
+        if (Array.isArray(data.robots)) setRobots(data.robots);
+        if (Array.isArray(data.activityColumns)) setActivityColumns(data.activityColumns);
+        if (Array.isArray(data.alerts)) setAlerts(data.alerts);
+      } catch {
+        // Preserve last valid frame if transient network error occurs
+      }
+    },
+    [zone, dateRange, authToken]
+  );
 
   useEffect(() => {
     let active = true;
     void fetchSetupStatus().then((connected) => {
-      if (active && connected) {
+      if (active && connected && authToken) {
         void fetchDashboardData();
       }
     });
     return () => {
       active = false;
     };
-  }, [fetchSetupStatus, fetchDashboardData]);
+  }, [fetchSetupStatus, fetchDashboardData, authToken]);
 
   useEffect(() => {
     if (!isLive) return;
     const timer = window.setInterval(() => {
       if (setupStatus?.dbConnected) {
-        void fetchDashboardData();
+        if (authToken) {
+          void fetchDashboardData();
+        }
       } else {
         void fetchSetupStatus().then((connected) => {
-          if (connected) {
+          if (connected && authToken) {
             void fetchDashboardData();
           }
         });
       }
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [isLive, setupStatus?.dbConnected, fetchDashboardData, fetchSetupStatus]);
+  }, [isLive, setupStatus?.dbConnected, authToken, fetchDashboardData, fetchSetupStatus]);
 
   const filteredRobots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -141,12 +159,13 @@ export default function App() {
     setAuthToken(token);
     setAuthUser(user);
     void fetchSetupStatus();
+    void fetchDashboardData(token);
   };
 
-  const handleLogout = async () => {
+  const handleLogout = async (allSessions = false) => {
     if (authToken) {
       try {
-        await fetch('/api/auth/logout', {
+        await fetch(allSessions ? '/api/auth/logout-all' : '/api/auth/logout', {
           method: 'POST',
           headers: { Authorization: `Bearer ${authToken}` },
         });
@@ -156,6 +175,10 @@ export default function App() {
     }
     setAuthToken(null);
     setAuthUser(null);
+    setMetrics(EMPTY_METRICS);
+    setRobots([]);
+    setActivityColumns([]);
+    setAlerts([]);
     void fetchSetupStatus();
   };
 
@@ -338,6 +361,7 @@ export default function App() {
                 robots={filteredRobots}
                 selectedRobotId={selectedRobot?.id ?? null}
                 onSelectRobot={setSelectedRobotId}
+                isAuthenticated={Boolean(authToken)}
               />
               <RobotActivityCard
                 activeMissions={metrics.activeMissions}

@@ -33,7 +33,7 @@ export function AmrOverviewCard({ robot }: AmrOverviewCardProps) {
       </div>
 
       {/* 3D AMR Studio Viewport */}
-      <div className="relative flex-1 min-h-[170px] w-full my-1">
+      <div className="relative h-[220px] sm:h-[250px] xl:h-auto xl:flex-1 xl:min-h-[170px] w-full my-1">
         <AmrHeroCanvas hasCargo={robot.hasCargo} accentColor={robot.accentColor} />
       </div>
 

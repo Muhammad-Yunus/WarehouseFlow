@@ -1,4 +1,4 @@
-import { ActivityColumn, DateRangeOption, RobotUnit, ZoneMetrics, ZoneOption } from '../types/fleet';
+import type { ActivityColumn, DateRangeOption, RobotUnit, ZoneMetrics, ZoneOption } from '../types/fleet.ts';
 
 export const ZONE_METRICS: Record<ZoneOption, Record<DateRangeOption, ZoneMetrics>> = {
   'Warehouse A: Zone B': {

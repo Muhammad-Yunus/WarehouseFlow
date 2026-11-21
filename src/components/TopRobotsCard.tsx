@@ -10,8 +10,8 @@ interface TopRobotsCardProps {
 
 function RobotThumbnail({ hasCargo }: { hasCargo: boolean }) {
   return (
-    <div className="w-[46px] h-[34px] rounded-[9px] bg-[#f4f2ec] border border-[#e7e4dc] flex items-center justify-center shrink-0 overflow-hidden">
-      <svg viewBox="0 0 64 44" className="w-10 h-7" aria-hidden="true">
+    <div className="w-[38px] h-[29px] sm:w-[46px] sm:h-[34px] rounded-[9px] bg-[#f4f2ec] border border-[#e7e4dc] flex items-center justify-center shrink-0 overflow-hidden">
+      <svg viewBox="0 0 64 44" className="w-8 h-6 sm:w-10 sm:h-7" aria-hidden="true">
         {/* Soft shadow */}
         <ellipse cx="32" cy="39" rx="22" ry="3.5" fill="rgba(0,0,0,0.12)" />
         {/* Wheels */}
@@ -122,7 +122,7 @@ export function TopRobotsCard({
       </div>
 
       {/* Table */}
-      <div className="overflow-y-auto max-h-[138px] pr-0.5">
+      <div className="overflow-x-auto overflow-y-auto max-h-[144px] pr-0.5">
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-[#ecece7] text-[11.5px] font-normal text-[#878a84]">
@@ -151,33 +151,35 @@ export function TopRobotsCard({
                   }`}
                 >
                   <td className="py-3 pr-2">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2 sm:gap-2.5">
                       <RobotThumbnail hasCargo={robot.hasCargo} />
                       <div className="min-w-0">
-                        <div className="text-[12.5px] font-medium text-[#212422] leading-tight whitespace-nowrap">
+                        <div className="text-[12px] sm:text-[12.5px] font-medium text-[#212422] leading-tight whitespace-nowrap">
                           {robot.id}
                         </div>
-                        <div className="text-[10.5px] text-[#8a8d87] leading-tight mt-0.5 whitespace-nowrap">
+                        <div className="text-[10px] sm:text-[10.5px] text-[#8a8d87] leading-tight mt-0.5 whitespace-nowrap">
                           {robot.role}
                         </div>
                       </div>
                     </div>
                   </td>
 
-                  <td className="py-2.5 pr-2">
+                  <td className="py-3 pr-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[12.5px] font-medium text-[#212422] tabular-nums whitespace-nowrap">
+                      <span className="text-[12px] sm:text-[12.5px] font-medium text-[#212422] tabular-nums whitespace-nowrap">
                         {robot.efficiency}%
                       </span>
-                      <SegmentedGauge
-                        value={robot.efficiency}
-                        accent={robot.accentColor}
-                      />
+                      <div className="hidden lg:block">
+                        <SegmentedGauge
+                          value={robot.efficiency}
+                          accent={robot.accentColor}
+                        />
+                      </div>
                     </div>
                   </td>
 
                   <td className="py-2.5 pr-2">
-                    <span className="text-[12.5px] text-[#2b2e2b] tabular-nums whitespace-nowrap">
+                    <span className="text-[12px] sm:text-[12.5px] text-[#2b2e2b] tabular-nums whitespace-nowrap">
                       {period === 'Month'
                         ? robot.completedTasks
                         : Math.round(robot.completedTasks * 0.28)}{' '}
@@ -187,7 +189,7 @@ export function TopRobotsCard({
 
                   <td className="py-2.5 text-right">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap ${statusStyle}`}
+                      className={`inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10.5px] sm:text-[11px] font-medium border whitespace-nowrap ${statusStyle}`}
                     >
                       {robot.status}
                     </span>

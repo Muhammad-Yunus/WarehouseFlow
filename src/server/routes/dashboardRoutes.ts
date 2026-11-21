@@ -1,0 +1,346 @@
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { Router } from 'express';
+import { z } from 'zod';
+import { ACTIVITY_COLUMNS, FLEET_ROBOTS, ZONE_METRICS } from '../../data/fleetData.ts';
+import { getDb, testDatabaseConnection } from '../../db/index.ts';
+import {
+  fleetAlerts,
+  robotActivityColumns,
+  robotTelemetryLogs,
+  robots,
+  zoneMetrics,
+} from '../../db/schema.ts';
+import type { DateRangeOption, ZoneOption } from '../../types/fleet.ts';
+import { type AuthenticatedRequest, requireUserAuth } from '../auth.ts';
+
+const ZONES = [
+  'Warehouse A: Zone B',
+  'Warehouse A: Zone A',
+  'Warehouse B: Zone C',
+] as const;
+
+const DATE_RANGES = ['Today', 'This Week', 'This Month'] as const;
+
+const dashboardQuerySchema = z.object({
+  zone: z.enum(ZONES).default('Warehouse A: Zone B'),
+  dateRange: z.enum(DATE_RANGES).default('Today'),
+});
+
+const patchRobotStatusSchema = z.object({
+  status: z.enum(['Active', 'Picking', 'Charging', 'Idle']).optional(),
+  hasCargo: z.boolean().optional(),
+  batteryHealth: z.number().int().min(0).max(100).optional(),
+  taskCompletion: z.number().int().min(0).max(100).optional(),
+  zoneName: z.enum(ZONES).optional(),
+});
+
+export const dashboardRouter = Router();
+
+dashboardRouter.get('/health', async (_req, res) => {
+  const dbHealth = await testDatabaseConnection();
+  res.json({
+    ok: true,
+    service: 'wirehouseflow-api',
+    database: dbHealth,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+dashboardRouter.get('/dashboard', async (req, res) => {
+  const parsed = dashboardQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid zone or dateRange query parameter' });
+    return;
+  }
+
+  const { zone, dateRange } = parsed.data;
+  const db = getDb();
+
+  if (!db) {
+    res.json({
+      dataSource: 'fallback',
+      zone,
+      dateRange,
+      metrics: ZONE_METRICS[zone as ZoneOption][dateRange as DateRangeOption],
+      robots: FLEET_ROBOTS,
+      activityColumns: ACTIVITY_COLUMNS,
+      alerts: [
+        {
+          id: 1,
+          zoneName: 'Warehouse A: Zone B',
+          robotId: 'AMR-024',
+          title: 'AMR-024 Battery at 64%',
+          description: 'Scheduled recharge after Bay 4 drop',
+          severity: 'warning',
+          acknowledged: false,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 2,
+          zoneName: 'Warehouse A: Zone B',
+          robotId: null,
+          title: 'Dock Bay 2 Cleared',
+          description: 'Trailer #408 ready for departure',
+          severity: 'info',
+          acknowledged: false,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    return;
+  }
+
+  try {
+    const [metricRows, robotRows, activityRows, alertRows] = await Promise.all([
+      db
+        .select()
+        .from(zoneMetrics)
+        .where(and(eq(zoneMetrics.zoneName, zone), eq(zoneMetrics.dateRange, dateRange)))
+        .limit(1),
+      db
+        .select()
+        .from(robots)
+        .orderBy(desc(robots.efficiency), desc(robots.completedTasks), asc(robots.id)),
+      db
+        .select()
+        .from(robotActivityColumns)
+        .where(eq(robotActivityColumns.zoneName, zone))
+        .orderBy(asc(robotActivityColumns.columnIndex)),
+      db
+        .select()
+        .from(fleetAlerts)
+        .orderBy(asc(fleetAlerts.acknowledged), desc(fleetAlerts.createdAt))
+        .limit(12),
+    ]);
+
+    const fallbackMetrics = ZONE_METRICS[zone as ZoneOption][dateRange as DateRangeOption];
+
+    res.json({
+      dataSource: 'postgresql',
+      zone,
+      dateRange,
+      metrics: metricRows[0]
+        ? {
+            efficiency: metricRows[0].efficiency,
+            robots: metricRows[0].robots,
+            tasks: metricRows[0].tasks,
+            onTime: metricRows[0].onTime,
+            activeMissions: metricRows[0].activeMissions,
+          }
+        : fallbackMetrics,
+      robots: robotRows.map((r) => ({
+        id: r.id,
+        role: r.role,
+        efficiency: r.efficiency,
+        completedTasks: r.completedTasks,
+        status: r.status,
+        batteryHealth: r.batteryHealth,
+        taskCompletion: r.taskCompletion,
+        accentColor: r.accentColor === 'green' ? 'green' : 'orange',
+        hasCargo: r.hasCargo,
+        pathIndex: r.pathIndex,
+        initialProgress: r.initialProgress,
+        speed: r.speed,
+        zoneName: r.zoneName,
+      })),
+      activityColumns:
+        activityRows.length > 0
+          ? activityRows.map((col) => ({
+              id: col.columnIndex,
+              day: col.day,
+              dots: col.dots,
+              dateLabel: col.dateLabel,
+              missions: col.missions,
+              delta: col.delta,
+              highlighted: col.highlighted,
+            }))
+          : ACTIVITY_COLUMNS,
+      alerts: alertRows,
+    });
+  } catch (err) {
+    console.error('Dashboard query error:', err);
+    res.status(500).json({ error: 'Failed to load warehouse dashboard data from PostgreSQL' });
+  }
+});
+
+dashboardRouter.get('/robots', async (_req, res) => {
+  const db = getDb();
+  if (!db) {
+    res.json({ dataSource: 'fallback', robots: FLEET_ROBOTS });
+    return;
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(robots)
+      .orderBy(desc(robots.efficiency), asc(robots.id));
+    res.json({ dataSource: 'postgresql', robots: rows });
+  } catch (err) {
+    console.error('Robots list error:', err);
+    res.status(500).json({ error: 'Failed to fetch fleet robots' });
+  }
+});
+
+dashboardRouter.get('/robots/:id', async (req, res) => {
+  const robotId = req.params.id;
+  const db = getDb();
+  if (!db) {
+    const fallback = FLEET_ROBOTS.find((r) => r.id === robotId);
+    if (!fallback) {
+      res.status(404).json({ error: 'Robot not found' });
+      return;
+    }
+    res.json({ dataSource: 'fallback', robot: fallback, telemetryLogs: [] });
+    return;
+  }
+
+  try {
+    const [robot] = await db.select().from(robots).where(eq(robots.id, robotId)).limit(1);
+    if (!robot) {
+      res.status(404).json({ error: 'Robot not found' });
+      return;
+    }
+
+    const telemetryLogs = await db
+      .select()
+      .from(robotTelemetryLogs)
+      .where(eq(robotTelemetryLogs.robotId, robotId))
+      .orderBy(desc(robotTelemetryLogs.recordedAt))
+      .limit(25);
+
+    res.json({ dataSource: 'postgresql', robot, telemetryLogs });
+  } catch (err) {
+    console.error('Robot inspect error:', err);
+    res.status(500).json({ error: 'Failed to inspect robot' });
+  }
+});
+
+dashboardRouter.patch('/robots/:id/status', requireUserAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = patchRobotStatusSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid status update payload', details: parsed.error.flatten() });
+    return;
+  }
+
+  const db = req.db!;
+  const robotId = req.params.id;
+
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(robots).where(eq(robots.id, robotId)).limit(1);
+      if (!existing) return null;
+
+      const nextValues = {
+        status: parsed.data.status ?? existing.status,
+        hasCargo: parsed.data.hasCargo ?? existing.hasCargo,
+        batteryHealth: parsed.data.batteryHealth ?? existing.batteryHealth,
+        taskCompletion: parsed.data.taskCompletion ?? existing.taskCompletion,
+        zoneName: parsed.data.zoneName ?? existing.zoneName,
+        updatedAt: new Date(),
+      };
+
+      const [saved] = await tx
+        .update(robots)
+        .set(nextValues)
+        .where(eq(robots.id, robotId))
+        .returning();
+
+      await tx.insert(robotTelemetryLogs).values({
+        robotId: saved.id,
+        zoneName: saved.zoneName,
+        status: saved.status,
+        efficiency: saved.efficiency,
+        batteryHealth: saved.batteryHealth,
+        taskCompletion: saved.taskCompletion,
+        completedTasks: saved.completedTasks,
+        hasCargo: saved.hasCargo,
+        source: `operator:${req.authUser!.email}`,
+      });
+
+      return saved;
+    });
+
+    if (!updated) {
+      res.status(404).json({ error: 'Robot not found' });
+      return;
+    }
+
+    res.json({ robot: updated });
+  } catch (err) {
+    console.error('Update robot status error:', err);
+    res.status(500).json({ error: 'Failed to update robot status' });
+  }
+});
+
+dashboardRouter.patch(
+  '/alerts/:id/acknowledge',
+  requireUserAuth,
+  async (req: AuthenticatedRequest, res) => {
+    const alertId = Number(req.params.id);
+    if (!Number.isInteger(alertId) || alertId <= 0) {
+      res.status(400).json({ error: 'Invalid alert id' });
+      return;
+    }
+
+    const db = req.db!;
+    try {
+      const [updated] = await db
+        .update(fleetAlerts)
+        .set({ acknowledged: true })
+        .where(eq(fleetAlerts.id, alertId))
+        .returning();
+
+      if (!updated) {
+        res.status(404).json({ error: 'Alert not found' });
+        return;
+      }
+      res.json({ alert: updated });
+    } catch (err) {
+      console.error('Acknowledge alert error:', err);
+      res.status(500).json({ error: 'Failed to acknowledge alert' });
+    }
+  }
+);
+
+dashboardRouter.get('/export', requireUserAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = dashboardQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid export query parameters' });
+    return;
+  }
+
+  const db = req.db!;
+  const { zone, dateRange } = parsed.data;
+
+  try {
+    const [metricRows, robotRows, activityRows, alertRows] = await Promise.all([
+      db
+        .select()
+        .from(zoneMetrics)
+        .where(and(eq(zoneMetrics.zoneName, zone), eq(zoneMetrics.dateRange, dateRange)))
+        .limit(1),
+      db.select().from(robots).orderBy(desc(robots.efficiency), asc(robots.id)),
+      db
+        .select()
+        .from(robotActivityColumns)
+        .where(eq(robotActivityColumns.zoneName, zone))
+        .orderBy(asc(robotActivityColumns.columnIndex)),
+      db.select().from(fleetAlerts).orderBy(desc(fleetAlerts.createdAt)).limit(50),
+    ]);
+
+    res.json({
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.authUser!.email,
+      zone,
+      dateRange,
+      metrics: metricRows[0] ?? null,
+      fleet: robotRows,
+      activityColumns: activityRows,
+      alerts: alertRows,
+    });
+  } catch (err) {
+    console.error('Export error:', err);
+    res.status(500).json({ error: 'Failed to export PostgreSQL snapshot' });
+  }
+});

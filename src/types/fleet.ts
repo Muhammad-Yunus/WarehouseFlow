@@ -42,3 +42,40 @@ export interface ZoneMetrics {
   onTime: number;
   activeMissions: number;
 }
+
+export interface FleetAlert {
+  id: number;
+  zoneName: string;
+  robotId: string | null;
+  title: string;
+  description: string;
+  severity: 'info' | 'warning' | 'critical' | string;
+  acknowledged: boolean;
+  createdAt: string;
+}
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  fullName: string;
+  jobTitle: string;
+  role: string;
+}
+
+export interface AuthSetupStatus {
+  dbConfigured: boolean;
+  dbConnected: boolean;
+  needsBootstrap: boolean;
+  hasPasscodeEnv: boolean;
+}
+
+export interface ApiKeySummary {
+  id: number;
+  name: string;
+  keyPrefix: string;
+  scopes: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+  createdAt: string;
+}
+

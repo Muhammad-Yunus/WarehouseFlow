@@ -1,25 +1,32 @@
 import { BarChart3, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { ACTIVITY_COLUMNS } from '../data/fleetData';
+import { ActivityColumn } from '../types/fleet';
 
 interface RobotActivityCardProps {
   activeMissions: number;
+  columns?: ActivityColumn[];
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
-export function RobotActivityCard({ activeMissions }: RobotActivityCardProps) {
+export function RobotActivityCard({ activeMissions, columns }: RobotActivityCardProps) {
+  const activityList = columns && columns.length > 0 ? columns : ACTIVITY_COLUMNS;
   const [period, setPeriod] = useState<'Month' | 'Week'>('Month');
   const defaultHighlight =
-    ACTIVITY_COLUMNS.find((c) => c.highlighted)?.id ?? 17;
+    activityList.find((c) => c.highlighted)?.id ?? activityList[Math.min(17, activityList.length - 1)]?.id ?? 0;
   const [activeColId, setActiveColId] = useState<number>(defaultHighlight);
 
   const activeCol =
-    ACTIVITY_COLUMNS.find((c) => c.id === activeColId) ??
-    ACTIVITY_COLUMNS[defaultHighlight];
+    activityList.find((c) => c.id === activeColId) ??
+    activityList.find((c) => c.highlighted) ??
+    activityList[0];
 
   // Calculate horizontal tooltip offset based on active column index (0..37)
-  const tooltipLeftPct = Math.min(72, Math.max(8, (activeCol.id / (ACTIVITY_COLUMNS.length - 1)) * 100 + 3));
+  const tooltipLeftPct = Math.min(
+    72,
+    Math.max(8, (activeCol.id / Math.max(1, activityList.length - 1)) * 100 + 3)
+  );
 
   return (
     <section className="glass-surface-strong rounded-[24px] p-4 flex flex-col justify-between min-w-0 relative">
@@ -86,7 +93,7 @@ export function RobotActivityCard({ activeMissions }: RobotActivityCardProps) {
 
         {/* Columns of dots */}
         <div className="flex items-end justify-between gap-[2.5px] h-[94px]">
-          {ACTIVITY_COLUMNS.map((col) => {
+          {activityList.map((col) => {
             const isThuPeakZone = col.day === 'Thu';
             const isSelected = col.id === activeCol.id;
 

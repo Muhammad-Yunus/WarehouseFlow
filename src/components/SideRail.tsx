@@ -4,6 +4,7 @@ import { NavSection } from '../types/fleet';
 interface SideRailProps {
   activeSection: NavSection;
   onSelectSection: (section: NavSection) => void;
+  orientation?: 'vertical' | 'horizontal';
 }
 
 const RAIL_ITEMS: Array<{
@@ -18,11 +19,19 @@ const RAIL_ITEMS: Array<{
   { id: 'alerts', label: 'Fleet Alerts', Icon: AlertTriangle },
 ];
 
-export function SideRail({ activeSection, onSelectSection }: SideRailProps) {
+export function SideRail({
+  activeSection,
+  onSelectSection,
+  orientation = 'vertical',
+}: SideRailProps) {
+  const isHorizontal = orientation === 'horizontal';
+
   return (
     <aside
       aria-label="Workspace navigation"
-      className="glass-surface flex flex-col items-center gap-2 rounded-full p-1.5 w-[50px] shrink-0"
+      className={`glass-surface flex items-center gap-2 rounded-full p-1.5 shrink-0 ${
+        isHorizontal ? 'flex-row w-fit' : 'flex-col w-[50px]'
+      }`}
     >
       {RAIL_ITEMS.map(({ id, label, Icon }) => {
         const isActive = activeSection === id;
@@ -33,7 +42,7 @@ export function SideRail({ activeSection, onSelectSection }: SideRailProps) {
             title={label}
             aria-label={label}
             onClick={() => onSelectSection(id)}
-            className={`w-[38px] h-[38px] rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer ${
+            className={`w-[36px] h-[36px] sm:w-[38px] sm:h-[38px] rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer ${
               isActive
                 ? 'bg-gradient-to-br from-[#ff6a42] to-[#eb4e27] text-white shadow-[0_6px_16px_rgba(235,78,39,0.34)]'
                 : 'text-[#484b45] hover:bg-white/75 hover:text-[#1f2120]'

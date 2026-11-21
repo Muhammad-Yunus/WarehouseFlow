@@ -31,6 +31,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.dashboard-shell {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+@media (min-width: 1280px) and (min-height: 820px) {
+  .dashboard-shell {
+    height: 100vh;
+    overflow: hidden;
+  }
+}
+
 /* Warm sage-ivory-stone ambient dashboard background matching reference */
 .flowos-canvas-bg {
   background-color: #efefe9;

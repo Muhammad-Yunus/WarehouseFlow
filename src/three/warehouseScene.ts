@@ -55,11 +55,12 @@ export class WarehouseScene {
   private maxAnisotropy: number;
 
   private callbacks: WarehouseCallbacks;
-  private selectedRobotId: string;
+  private selectedRobotId: string | null;
   private isLive = true;
 
   private robots: AnimatedRobot[] = [];
   private hitMeshes: THREE.Mesh[] = [];
+  private robotGroupContainer = new THREE.Group();
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
 
@@ -81,7 +82,7 @@ export class WarehouseScene {
   constructor(
     container: HTMLElement,
     robotUnits: RobotUnit[],
-    initialSelectedId: string,
+    initialSelectedId: string | null,
     callbacks: WarehouseCallbacks
   ) {
     this.container = container;
@@ -645,11 +646,29 @@ export class WarehouseScene {
     }
   }
 
+  private fleetCardboardTex: THREE.Texture | null = null;
+  private fleetOrangeVisor: THREE.Texture | null = null;
+  private fleetGreenVisor: THREE.Texture | null = null;
+
   private buildFleetRobots(units: RobotUnit[]): void {
-    const cardboardTex = createCardboardTexture(this.maxAnisotropy);
-    const orangeVisor = createAmrVisorTexture(this.maxAnisotropy, '#ff6838');
-    const greenVisor = createAmrVisorTexture(this.maxAnisotropy, '#58c977');
-    this.textures.push(cardboardTex, orangeVisor, greenVisor);
+    if (!this.robotGroupContainer.parent) {
+      this.scene.add(this.robotGroupContainer);
+    }
+
+    if (!this.fleetCardboardTex) {
+      this.fleetCardboardTex = createCardboardTexture(this.maxAnisotropy);
+      this.fleetOrangeVisor = createAmrVisorTexture(this.maxAnisotropy, '#ff6838');
+      this.fleetGreenVisor = createAmrVisorTexture(this.maxAnisotropy, '#58c977');
+      this.textures.push(
+        this.fleetCardboardTex,
+        this.fleetOrangeVisor,
+        this.fleetGreenVisor
+      );
+    }
+
+    const cardboardTex = this.fleetCardboardTex;
+    const orangeVisor = this.fleetOrangeVisor!;
+    const greenVisor = this.fleetGreenVisor!;
 
     const paths: PathPoint[][] = [
       // Path 0 (AMR-024 prominent middle-upper aisle)
@@ -696,6 +715,14 @@ export class WarehouseScene {
       ],
     ];
 
+    const previousProgress = new Map<string, number>();
+    for (const prev of this.robots) {
+      previousProgress.set(prev.unit.id, prev.progress);
+      this.robotGroupContainer.remove(prev.group);
+    }
+    this.robots = [];
+    this.hitMeshes = [];
+
     const hitMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitGeo = new THREE.BoxGeometry(1.7, 1.8, 1.7);
 
@@ -720,13 +747,38 @@ export class WarehouseScene {
         unit,
         group,
         path,
-        progress: unit.initialProgress ?? (idx * 0.17) % 1,
+        progress: previousProgress.get(unit.id) ?? unit.initialProgress ?? (idx * 0.17) % 1,
         hitBox,
       };
       this.updateRobotOnPath(animated, 0);
-      this.scene.add(group);
+      this.robotGroupContainer.add(group);
       this.robots.push(animated);
     });
+  }
+
+  public syncRobots(units: RobotUnit[]): void {
+    if (this.disposed) return;
+    const sameVisualTopology =
+      units.length === this.robots.length &&
+      units.every((u, i) => {
+        const cur = this.robots[i]?.unit;
+        return (
+          cur &&
+          cur.id === u.id &&
+          cur.hasCargo === u.hasCargo &&
+          cur.accentColor === u.accentColor &&
+          cur.pathIndex === u.pathIndex
+        );
+      });
+
+    if (sameVisualTopology) {
+      for (let i = 0; i < units.length; i++) {
+        this.robots[i].unit = units[i];
+      }
+      return;
+    }
+
+    this.buildFleetRobots(units);
   }
 
   private updateRobotOnPath(robot: AnimatedRobot, delta: number): void {
@@ -770,7 +822,7 @@ export class WarehouseScene {
     }
   };
 
-  public setSelectedRobot(robotId: string): void {
+  public setSelectedRobot(robotId: string | null): void {
     this.selectedRobotId = robotId;
   }
 
@@ -863,7 +915,9 @@ export class WarehouseScene {
     this.renderer.render(this.scene, this.camera);
 
     // Project selected robot position to DOM overlay coordinates
-    const selected = this.robots.find((r) => r.unit.id === this.selectedRobotId);
+    const selected = this.selectedRobotId
+      ? this.robots.find((r) => r.unit.id === this.selectedRobotId)
+      : undefined;
     if (selected) {
       _vec3.copy(selected.group.position);
       _vec3.y += 1.5;
@@ -874,6 +928,8 @@ export class WarehouseScene {
       const sy = (-_vec3.y * 0.5 + 0.5) * h;
       const visible = _vec3.z < 1 && sx > 30 && sx < w - 30 && sy > 20 && sy < h - 20;
       this.callbacks.onCalloutMove({ x: sx, y: sy, visible });
+    } else {
+      this.callbacks.onCalloutMove({ x: 0, y: 0, visible: false });
     }
 
     if (this.isSoftwareGl) {

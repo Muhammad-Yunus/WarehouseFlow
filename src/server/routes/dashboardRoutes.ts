@@ -1,7 +1,6 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { ACTIVITY_COLUMNS, FLEET_ROBOTS, ZONE_METRICS } from '../../data/fleetData.ts';
 import { getDb, testDatabaseConnection } from '../../db/index.ts';
 import {
   fleetAlerts,
@@ -10,7 +9,6 @@ import {
   robots,
   zoneMetrics,
 } from '../../db/schema.ts';
-import type { DateRangeOption, ZoneOption } from '../../types/fleet.ts';
 import { type AuthenticatedRequest, requireUserAuth } from '../auth.ts';
 
 const ZONES = [
@@ -33,6 +31,14 @@ const patchRobotStatusSchema = z.object({
   taskCompletion: z.number().int().min(0).max(100).optional(),
   zoneName: z.enum(ZONES).optional(),
 });
+
+const EMPTY_METRICS = {
+  efficiency: 0,
+  robots: 0,
+  tasks: 0,
+  onTime: 0,
+  activeMissions: 0,
+};
 
 export const dashboardRouter = Router();
 
@@ -57,35 +63,8 @@ dashboardRouter.get('/dashboard', async (req, res) => {
   const db = getDb();
 
   if (!db) {
-    res.json({
-      dataSource: 'fallback',
-      zone,
-      dateRange,
-      metrics: ZONE_METRICS[zone as ZoneOption][dateRange as DateRangeOption],
-      robots: FLEET_ROBOTS,
-      activityColumns: ACTIVITY_COLUMNS,
-      alerts: [
-        {
-          id: 1,
-          zoneName: 'Warehouse A: Zone B',
-          robotId: 'AMR-024',
-          title: 'AMR-024 Battery at 64%',
-          description: 'Scheduled recharge after Bay 4 drop',
-          severity: 'warning',
-          acknowledged: false,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          zoneName: 'Warehouse A: Zone B',
-          robotId: null,
-          title: 'Dock Bay 2 Cleared',
-          description: 'Trailer #408 ready for departure',
-          severity: 'info',
-          acknowledged: false,
-          createdAt: new Date().toISOString(),
-        },
-      ],
+    res.status(503).json({
+      error: 'Database is not configured. Configure PostgreSQL environment variables.',
     });
     return;
   }
@@ -113,8 +92,6 @@ dashboardRouter.get('/dashboard', async (req, res) => {
         .limit(12),
     ]);
 
-    const fallbackMetrics = ZONE_METRICS[zone as ZoneOption][dateRange as DateRangeOption];
-
     res.json({
       dataSource: 'postgresql',
       zone,
@@ -127,7 +104,7 @@ dashboardRouter.get('/dashboard', async (req, res) => {
             onTime: metricRows[0].onTime,
             activeMissions: metricRows[0].activeMissions,
           }
-        : fallbackMetrics,
+        : EMPTY_METRICS,
       robots: robotRows.map((r) => ({
         id: r.id,
         role: r.role,
@@ -143,30 +120,34 @@ dashboardRouter.get('/dashboard', async (req, res) => {
         speed: r.speed,
         zoneName: r.zoneName,
       })),
-      activityColumns:
-        activityRows.length > 0
-          ? activityRows.map((col) => ({
-              id: col.columnIndex,
-              day: col.day,
-              dots: col.dots,
-              dateLabel: col.dateLabel,
-              missions: col.missions,
-              delta: col.delta,
-              highlighted: col.highlighted,
-            }))
-          : ACTIVITY_COLUMNS,
+      activityColumns: activityRows.map((col) => ({
+        id: col.columnIndex,
+        day: col.day,
+        dots: col.dots,
+        dateLabel: col.dateLabel,
+        missions: col.missions,
+        delta: col.delta,
+        highlighted: col.highlighted,
+      })),
       alerts: alertRows,
     });
   } catch (err) {
-    console.error('Dashboard query error:', err);
-    res.status(500).json({ error: 'Failed to load warehouse dashboard data from PostgreSQL' });
+    const message = err instanceof Error ? err.message : 'Database query failed';
+    const isConnErr =
+      /password authentication|ECIRCUITBREAKER|ECONNREFUSED|ETIMEDOUT|timeout|getaddrinfo/i.test(
+        message
+      );
+    console.error('Dashboard query error:', message);
+    res
+      .status(isConnErr ? 503 : 500)
+      .json({ error: isConnErr ? `PostgreSQL unavailable: ${message}` : 'Failed to load warehouse dashboard data from PostgreSQL' });
   }
 });
 
 dashboardRouter.get('/robots', async (_req, res) => {
   const db = getDb();
   if (!db) {
-    res.json({ dataSource: 'fallback', robots: FLEET_ROBOTS });
+    res.status(503).json({ error: 'Database is not configured' });
     return;
   }
 
@@ -186,12 +167,7 @@ dashboardRouter.get('/robots/:id', async (req, res) => {
   const robotId = req.params.id;
   const db = getDb();
   if (!db) {
-    const fallback = FLEET_ROBOTS.find((r) => r.id === robotId);
-    if (!fallback) {
-      res.status(404).json({ error: 'Robot not found' });
-      return;
-    }
-    res.json({ dataSource: 'fallback', robot: fallback, telemetryLogs: [] });
+    res.status(503).json({ error: 'Database is not configured' });
     return;
   }
 

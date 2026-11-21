@@ -4,7 +4,7 @@ import { RobotUnit } from '../types/fleet';
 
 interface TopRobotsCardProps {
   robots: RobotUnit[];
-  selectedRobotId: string;
+  selectedRobotId: string | null;
   onSelectRobot: (id: string) => void;
 }
 
@@ -133,7 +133,14 @@ export function TopRobotsCard({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f2f2ee]">
-            {filtered.map((robot) => {
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="py-6 text-center text-[12px] text-[#8a8d87]">
+                  Waiting for telemetry ingest from PostgreSQL...
+                </td>
+              </tr>
+            ) : (
+              filtered.map((robot) => {
               const isSelected = robot.id === selectedRobotId;
               const statusStyle =
                 robot.status === 'Active'
@@ -196,7 +203,7 @@ export function TopRobotsCard({
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

@@ -3,21 +3,27 @@ import { RobotUnit } from '../types/fleet';
 import { AmrHeroCanvas } from './AmrHeroCanvas';
 
 interface AmrOverviewCardProps {
-  robot: RobotUnit;
+  robot: RobotUnit | null;
 }
 
 export function AmrOverviewCard({ robot }: AmrOverviewCardProps) {
+  const batteryHealth = robot?.batteryHealth ?? 0;
+  const taskCompletion = robot?.taskCompletion ?? 0;
+
   // 5 discrete battery cells
-  const filledCells = Math.max(1, Math.min(5, Math.round((robot.batteryHealth / 100) * 5)));
+  const filledCells =
+    batteryHealth === 0
+      ? 0
+      : Math.max(1, Math.min(5, Math.round((batteryHealth / 100) * 5)));
 
   // 6 vertical bars matching the staggered rising coral profile in the reference
   const barHeights = [
-    Math.max(22, Math.round(robot.taskCompletion * 0.42)),
-    Math.max(28, Math.round(robot.taskCompletion * 0.56)),
-    Math.max(36, Math.round(robot.taskCompletion * 0.78)),
-    Math.max(30, Math.round(robot.taskCompletion * 0.65)),
-    Math.max(42, Math.round(robot.taskCompletion * 0.96)),
-    Math.max(38, Math.round(robot.taskCompletion * 0.85)),
+    Math.round(taskCompletion * 0.42),
+    Math.round(taskCompletion * 0.56),
+    Math.round(taskCompletion * 0.78),
+    Math.round(taskCompletion * 0.65),
+    Math.round(taskCompletion * 0.96),
+    Math.round(taskCompletion * 0.85),
   ];
 
   return (
@@ -28,13 +34,16 @@ export function AmrOverviewCard({ robot }: AmrOverviewCardProps) {
           <Bot className="w-3.5 h-3.5" />
         </div>
         <h2 className="text-[14px] font-medium tracking-[-0.01em] text-[#212422] whitespace-nowrap">
-          {robot.id} Overview
+          {robot ? `${robot.id} Overview` : 'AMR Overview'}
         </h2>
       </div>
 
       {/* 3D AMR Studio Viewport */}
       <div className="relative h-[220px] sm:h-[250px] xl:h-auto xl:flex-1 xl:min-h-[170px] w-full my-1">
-        <AmrHeroCanvas hasCargo={robot.hasCargo} accentColor={robot.accentColor} />
+        <AmrHeroCanvas
+          hasCargo={robot?.hasCargo ?? false}
+          accentColor={robot?.accentColor ?? 'orange'}
+        />
       </div>
 
       {/* Bottom 2 Gradient Metric Tiles */}
@@ -43,14 +52,14 @@ export function AmrOverviewCard({ robot }: AmrOverviewCardProps) {
         <div className="battery-tile-bg rounded-[20px] p-3 text-white">
           <div className="text-[11px] font-medium text-white/95">Battery Health</div>
           <div className="font-dots text-[27px] leading-tight text-white mt-0.5 mb-2">
-            {robot.batteryHealth}%
+            {batteryHealth}%
           </div>
 
           <div className="flex items-center">
             <div className="flex-1 h-[34px] rounded-[10px] border border-white/65 bg-white/15 p-[3px] flex items-center gap-[3px]">
               {Array.from({ length: 5 }, (_, idx) => {
                 const filled = idx < filledCells;
-                const isLastFilled = idx === filledCells - 1;
+                const isLastFilled = filled && idx === filledCells - 1;
                 return (
                   <div
                     key={idx}
@@ -77,7 +86,7 @@ export function AmrOverviewCard({ robot }: AmrOverviewCardProps) {
         <div className="completion-tile-bg rounded-[20px] p-3 text-white">
           <div className="text-[11px] font-medium text-white/95">Task Completion</div>
           <div className="font-dots text-[27px] leading-tight text-white mt-0.5 mb-2">
-            {robot.taskCompletion}%
+            {taskCompletion}%
           </div>
 
           <div className="flex items-end gap-[5px] h-[34px] pt-1">

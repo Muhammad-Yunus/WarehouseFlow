@@ -43,6 +43,8 @@ wirehouseflow/
 │   ├── 0000_massive_marten_broadcloak.sql   # PostgreSQL schema migration
 │   └── meta/                                # Drizzle snapshot metadata
 ├── public/                                  # Static public assets
+├── scripts/
+│   └── simulate-producer.ts                 # Standalone API telemetry producer simulator
 ├── src/
 │   ├── components/
 │   │   ├── AmrHeroCanvas.tsx                # 3D studio preview canvas for selected AMR
@@ -53,12 +55,9 @@ wirehouseflow/
 │   │   ├── TopBar.tsx                       # Search, zone/date filters, alerts, auth & API keys
 │   │   ├── TopRobotsCard.tsx                # Sortable/filterable fleet leaderboard
 │   │   └── WarehouseCanvas.tsx              # Interactive 3D warehouse floorplan canvas
-│   ├── data/
-│   │   └── fleetData.ts                     # Default seed dataset & zone matrix
 │   ├── db/
 │   │   ├── index.ts                         # PostgreSQL pool & Drizzle client initialization
-│   │   ├── schema.ts                        # Drizzle ORM table definitions & indexes
-│   │   └── seed.ts                          # Idempotent initial warehouse data seeder
+│   │   └── schema.ts                        # Drizzle ORM table definitions & indexes
 │   ├── server/
 │   │   ├── auth.ts                          # scrypt, HMAC Bearer tokens, X-API-Key middleware
 │   │   └── routes/
@@ -202,6 +201,17 @@ npm run build
 
 # Start production Express server on port 3000
 npm start
+```
+
+### 7. Run Telemetry Data Producer Simulator
+Neither the frontend nor the backend generates dummy data internally—all dashboard telemetry is queried from PostgreSQL and fed via the authenticated ingestion APIs. Use `scripts/simulate-producer.ts` to simulate an edge fleet producer:
+
+```bash
+# Push initial baseline snapshot once and exit
+WIREHOUSEFLOW_API_KEY=wf_live_your_key npm run simulate:producer -- --once
+
+# Push baseline snapshot and stream continuous live telemetry every 4s
+WIREHOUSEFLOW_API_KEY=wf_live_your_key npm run simulate:producer -- --seed --interval=4000
 ```
 
 ---

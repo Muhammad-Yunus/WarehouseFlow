@@ -3,7 +3,6 @@ import path from 'node:path';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import express from 'express';
 import { getDb, isDatabaseConfigured } from './src/db/index.ts';
-import { seedWarehouseDataIfEmpty } from './src/db/seed.ts';
 import { authRouter } from './src/server/routes/authRoutes.ts';
 import { dashboardRouter } from './src/server/routes/dashboardRoutes.ts';
 import { ingestRouter } from './src/server/routes/ingestRoutes.ts';
@@ -14,7 +13,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 async function bootstrapDatabase(): Promise<void> {
   if (!isDatabaseConfigured()) {
     console.warn(
-      '[WirehouseFlow] PostgreSQL env variables not configured yet; API running in fallback mode until secrets are provided.'
+      '[WirehouseFlow] PostgreSQL env variables not configured yet; API waiting for DB secrets.'
     );
     return;
   }
@@ -26,8 +25,7 @@ async function bootstrapDatabase(): Promise<void> {
     await migrate(db, {
       migrationsFolder: path.resolve(process.cwd(), 'drizzle'),
     });
-    await seedWarehouseDataIfEmpty(db);
-    console.log('[WirehouseFlow] PostgreSQL migrations & initial seed verified.');
+    console.log('[WirehouseFlow] PostgreSQL migrations verified (no auto-seeding).');
   } catch (err) {
     console.error(
       '[WirehouseFlow] PostgreSQL initialization warning:',

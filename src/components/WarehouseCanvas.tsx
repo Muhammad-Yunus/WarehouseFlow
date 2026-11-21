@@ -11,7 +11,7 @@ export interface WarehouseCanvasHandle {
 
 interface WarehouseCanvasProps {
   robots: RobotUnit[];
-  selectedRobot: RobotUnit;
+  selectedRobot: RobotUnit | null;
   isLive: boolean;
   onSelectRobot: (robotId: string) => void;
   onInspectRobot: (robotId: string) => void;
@@ -27,7 +27,7 @@ export const WarehouseCanvas = forwardRef<WarehouseCanvasHandle, WarehouseCanvas
     const [callout, setCallout] = useState<CalloutPosition>({
       x: 420,
       y: 230,
-      visible: true,
+      visible: false,
     });
 
     useImperativeHandle(ref, () => ({
@@ -40,7 +40,7 @@ export const WarehouseCanvas = forwardRef<WarehouseCanvasHandle, WarehouseCanvas
       const el = mountRef.current;
       if (!el) return;
 
-      const controller = new WarehouseScene(el, robots, selectedRobot.id, {
+      const controller = new WarehouseScene(el, robots, selectedRobot?.id ?? null, {
         onSelectRobot: (id) => onSelectRef.current(id),
         onCalloutMove: (pos) => {
           setCallout((prev) => {
@@ -66,17 +66,21 @@ export const WarehouseCanvas = forwardRef<WarehouseCanvasHandle, WarehouseCanvas
     }, []);
 
     useEffect(() => {
-      sceneRef.current?.setSelectedRobot(selectedRobot.id);
-    }, [selectedRobot.id]);
+      sceneRef.current?.syncRobots(robots);
+    }, [robots]);
+
+    useEffect(() => {
+      sceneRef.current?.setSelectedRobot(selectedRobot?.id ?? null);
+    }, [selectedRobot?.id]);
 
     useEffect(() => {
       sceneRef.current?.setLive(isLive);
     }, [isLive]);
 
     const statusBadgeClass =
-      selectedRobot.status === 'Active'
+      selectedRobot?.status === 'Active'
         ? 'bg-[#e8f5ea] text-[#2f8548] border-[#c4e6cc]'
-        : selectedRobot.status === 'Picking'
+        : selectedRobot?.status === 'Picking'
           ? 'bg-[#eaf2fc] text-[#357bc2] border-[#c6ddf5]'
           : 'bg-[#fdf2e9] text-[#c76424] border-[#f4d6bc]';
 
@@ -86,7 +90,7 @@ export const WarehouseCanvas = forwardRef<WarehouseCanvasHandle, WarehouseCanvas
         <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
         {/* Projected 3D Callout Badge for Selected AMR (no backdrop-filter over WebGL) */}
-        {callout.visible && (
+        {selectedRobot && callout.visible && (
           <div
             style={{
               transform: `translate3d(${callout.x}px, ${callout.y}px, 0) translate(-50%, -105%)`,

@@ -7,7 +7,6 @@ import { SideRail } from './components/SideRail';
 import { TopBar } from './components/TopBar';
 import { TopRobotsCard } from './components/TopRobotsCard';
 import { WarehouseCanvas, WarehouseCanvasHandle } from './components/WarehouseCanvas';
-import { ACTIVITY_COLUMNS, FLEET_ROBOTS, ZONE_METRICS } from './data/fleetData';
 import {
   ActivityColumn,
   AuthSetupStatus,
@@ -20,6 +19,14 @@ import {
   ZoneOption,
 } from './types/fleet';
 
+const EMPTY_METRICS: ZoneMetrics = {
+  efficiency: 0,
+  robots: 0,
+  tasks: 0,
+  onTime: 0,
+  activeMissions: 0,
+};
+
 export default function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,32 +36,11 @@ export default function App() {
   const [isLive, setIsLive] = useState(true);
   const [isExpanded3D, setIsExpanded3D] = useState(false);
 
-  // Live backend-driven dashboard state (hydrated from PostgreSQL API)
-  const [robots, setRobots] = useState<RobotUnit[]>(FLEET_ROBOTS);
-  const [metrics, setMetrics] = useState<ZoneMetrics>(ZONE_METRICS['Warehouse A: Zone B'].Today);
-  const [activityColumns, setActivityColumns] = useState<ActivityColumn[]>(ACTIVITY_COLUMNS);
-  const [alerts, setAlerts] = useState<FleetAlert[]>([
-    {
-      id: 1,
-      zoneName: 'Warehouse A: Zone B',
-      robotId: 'AMR-024',
-      title: 'AMR-024 Battery at 64%',
-      description: 'Scheduled recharge after Bay 4 drop',
-      severity: 'warning',
-      acknowledged: false,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 2,
-      zoneName: 'Warehouse A: Zone B',
-      robotId: null,
-      title: 'Dock Bay 2 Cleared',
-      description: 'Trailer #408 ready for departure',
-      severity: 'info',
-      acknowledged: false,
-      createdAt: new Date().toISOString(),
-    },
-  ]);
+  // Live backend-driven dashboard state (100% hydrated from PostgreSQL via /api/dashboard)
+  const [robots, setRobots] = useState<RobotUnit[]>([]);
+  const [metrics, setMetrics] = useState<ZoneMetrics>(EMPTY_METRICS);
+  const [activityColumns, setActivityColumns] = useState<ActivityColumn[]>([]);
+  const [alerts, setAlerts] = useState<FleetAlert[]>([]);
 
   // Auth Bearer token strictly kept in React memory (never localStorage/sessionStorage)
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -63,16 +49,18 @@ export default function App() {
 
   const warehouseRef = useRef<WarehouseCanvasHandle | null>(null);
 
-  const fetchSetupStatus = useCallback(async () => {
+  const fetchSetupStatus = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch('/api/auth/setup-status');
       if (res.ok) {
         const data = (await res.json()) as AuthSetupStatus;
         setSetupStatus(data);
+        return Boolean(data.dbConnected);
       }
     } catch {
       // Keep UI resilient if backend is restarting
     }
+    return false;
   }, []);
 
   const fetchDashboardData = useCallback(async () => {
@@ -82,10 +70,8 @@ export default function App() {
       if (!res.ok) return;
       const data = await res.json();
       if (data.metrics) setMetrics(data.metrics);
-      if (Array.isArray(data.robots) && data.robots.length > 0) setRobots(data.robots);
-      if (Array.isArray(data.activityColumns) && data.activityColumns.length > 0) {
-        setActivityColumns(data.activityColumns);
-      }
+      if (Array.isArray(data.robots)) setRobots(data.robots);
+      if (Array.isArray(data.activityColumns)) setActivityColumns(data.activityColumns);
       if (Array.isArray(data.alerts)) setAlerts(data.alerts);
     } catch {
       // Preserve last valid frame if transient network error occurs
@@ -93,20 +79,32 @@ export default function App() {
   }, [zone, dateRange]);
 
   useEffect(() => {
-    void fetchSetupStatus();
-  }, [fetchSetupStatus]);
-
-  useEffect(() => {
-    void fetchDashboardData();
-  }, [fetchDashboardData]);
+    let active = true;
+    void fetchSetupStatus().then((connected) => {
+      if (active && connected) {
+        void fetchDashboardData();
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchSetupStatus, fetchDashboardData]);
 
   useEffect(() => {
     if (!isLive) return;
     const timer = window.setInterval(() => {
-      void fetchDashboardData();
+      if (setupStatus?.dbConnected) {
+        void fetchDashboardData();
+      } else {
+        void fetchSetupStatus().then((connected) => {
+          if (connected) {
+            void fetchDashboardData();
+          }
+        });
+      }
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [isLive, fetchDashboardData]);
+  }, [isLive, setupStatus?.dbConnected, fetchDashboardData, fetchSetupStatus]);
 
   const filteredRobots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -120,7 +118,7 @@ export default function App() {
   }, [searchQuery, robots]);
 
   const selectedRobot = useMemo(
-    () => robots.find((r) => r.id === selectedRobotId) ?? robots[0] ?? FLEET_ROBOTS[0],
+    () => robots.find((r) => r.id === selectedRobotId) ?? robots[0] ?? null,
     [selectedRobotId, robots]
   );
 
@@ -338,7 +336,7 @@ export default function App() {
             <div className="relative z-20 grid grid-cols-1 md:grid-cols-[1.08fr_1fr] gap-3.5 shrink-0 sm:pl-1">
               <TopRobotsCard
                 robots={filteredRobots}
-                selectedRobotId={selectedRobot.id}
+                selectedRobotId={selectedRobot?.id ?? null}
                 onSelectRobot={setSelectedRobotId}
               />
               <RobotActivityCard

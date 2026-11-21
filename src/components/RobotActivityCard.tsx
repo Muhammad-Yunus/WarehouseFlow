@@ -1,32 +1,33 @@
 import { BarChart3, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
-import { ACTIVITY_COLUMNS } from '../data/fleetData';
 import { ActivityColumn } from '../types/fleet';
 
 interface RobotActivityCardProps {
   activeMissions: number;
-  columns?: ActivityColumn[];
+  columns: ActivityColumn[];
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
 export function RobotActivityCard({ activeMissions, columns }: RobotActivityCardProps) {
-  const activityList = columns && columns.length > 0 ? columns : ACTIVITY_COLUMNS;
+  const activityList = columns;
   const [period, setPeriod] = useState<'Month' | 'Week'>('Month');
   const defaultHighlight =
-    activityList.find((c) => c.highlighted)?.id ?? activityList[Math.min(17, activityList.length - 1)]?.id ?? 0;
+    activityList.find((c) => c.highlighted)?.id ??
+    activityList[Math.min(17, Math.max(0, activityList.length - 1))]?.id ??
+    0;
   const [activeColId, setActiveColId] = useState<number>(defaultHighlight);
 
   const activeCol =
     activityList.find((c) => c.id === activeColId) ??
     activityList.find((c) => c.highlighted) ??
-    activityList[0];
+    activityList[0] ??
+    null;
 
-  // Calculate horizontal tooltip offset based on active column index (0..37)
-  const tooltipLeftPct = Math.min(
-    72,
-    Math.max(8, (activeCol.id / Math.max(1, activityList.length - 1)) * 100 + 3)
-  );
+  // Calculate horizontal tooltip offset based on active column index
+  const tooltipLeftPct = activeCol
+    ? Math.min(72, Math.max(8, (activeCol.id / Math.max(1, activityList.length - 1)) * 100 + 3))
+    : 40;
 
   return (
     <section className="glass-surface-strong rounded-[24px] p-4 flex flex-col justify-between min-w-0 relative">
@@ -74,28 +75,35 @@ export function RobotActivityCard({ activeMissions, columns }: RobotActivityCard
       {/* Dot-Matrix Histogram Chart */}
       <div className="relative pt-7 pb-1">
         {/* Floating Tooltip Card */}
-        <div
-          style={{ left: `${tooltipLeftPct}%` }}
-          className="absolute top-0 z-10 pointer-events-none transition-all duration-150"
-        >
-          <div className="rounded-2xl bg-white border border-[#f0efe9] shadow-[0_12px_28px_rgba(24,28,22,0.09)] px-3.5 py-2 min-w-[114px]">
-            <div className="text-[10.5px] text-[#8a8d87] leading-tight">
-              {activeCol.dateLabel}
-            </div>
-            <div className="text-[13.5px] font-semibold text-[#1f2120] leading-tight mt-0.5 tabular-nums">
-              {activeCol.missions} Missions
-            </div>
-            <div className="text-[10.5px] text-[#5e625c] leading-tight mt-0.5 tabular-nums">
-              {activeCol.delta}
+        {activeCol && (
+          <div
+            style={{ left: `${tooltipLeftPct}%` }}
+            className="absolute top-0 z-10 pointer-events-none transition-all duration-150"
+          >
+            <div className="rounded-2xl bg-white border border-[#f0efe9] shadow-[0_12px_28px_rgba(24,28,22,0.09)] px-3.5 py-2 min-w-[114px]">
+              <div className="text-[10.5px] text-[#8a8d87] leading-tight">
+                {activeCol.dateLabel}
+              </div>
+              <div className="text-[13.5px] font-semibold text-[#1f2120] leading-tight mt-0.5 tabular-nums">
+                {activeCol.missions} Missions
+              </div>
+              <div className="text-[10.5px] text-[#5e625c] leading-tight mt-0.5 tabular-nums">
+                {activeCol.delta}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Columns of dots */}
         <div className="flex items-end justify-between gap-[2.5px] h-[94px]">
-          {activityList.map((col) => {
+          {activityList.length === 0 ? (
+            <div className="w-full h-full flex items-center justify-center text-[12px] text-[#8a8d87]">
+              Waiting for mission activity data...
+            </div>
+          ) : (
+            activityList.map((col) => {
             const isThuPeakZone = col.day === 'Thu';
-            const isSelected = col.id === activeCol.id;
+            const isSelected = col.id === activeCol?.id;
 
             return (
               <button
@@ -134,7 +142,7 @@ export function RobotActivityCard({ activeMissions, columns }: RobotActivityCard
                 })}
               </button>
             );
-          })}
+          }))}
         </div>
 
         {/* X-Axis Labels */}
@@ -143,7 +151,7 @@ export function RobotActivityCard({ activeMissions, columns }: RobotActivityCard
             <span
               key={day}
               className={`text-[11px] ${
-                activeCol.day === day
+                activeCol?.day === day
                   ? 'text-[#212422] font-medium'
                   : 'text-[#6e716b] font-normal'
               }`}

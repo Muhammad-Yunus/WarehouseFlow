@@ -2,7 +2,7 @@ import 'dotenv/config';
 import path from 'node:path';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import express from 'express';
-import { getDb, isDatabaseConfigured } from './src/db/index.ts';
+import { extractDbErrorMessage, getDb, isDatabaseConfigured, testDatabaseConnection } from './src/db/index.ts';
 import { authRouter } from './src/server/routes/authRoutes.ts';
 import { dashboardRouter } from './src/server/routes/dashboardRoutes.ts';
 import { ingestRouter } from './src/server/routes/ingestRoutes.ts';
@@ -18,6 +18,14 @@ async function bootstrapDatabase(): Promise<void> {
     return;
   }
 
+  const health = await testDatabaseConnection();
+  if (!health.connected) {
+    console.warn(
+      `[WirehouseFlow] PostgreSQL connection skipped at startup (${health.error || 'unreachable'}). Verify PGHOST/PGUSER/PGPASSWORD secrets.`
+    );
+    return;
+  }
+
   const db = getDb();
   if (!db) return;
 
@@ -27,10 +35,8 @@ async function bootstrapDatabase(): Promise<void> {
     });
     console.log('[WirehouseFlow] PostgreSQL migrations verified (no auto-seeding).');
   } catch (err) {
-    console.error(
-      '[WirehouseFlow] PostgreSQL initialization warning:',
-      err instanceof Error ? err.message : err
-    );
+    const { message } = extractDbErrorMessage(err);
+    console.warn('[WirehouseFlow] PostgreSQL migration warning:', message);
   }
 }
 

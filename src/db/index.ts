@@ -7,10 +7,7 @@ export type Database = NodePgDatabase<typeof schema>;
 let poolInstance: Pool | null = null;
 let dbInstance: Database | null = null;
 
-export function isDatabaseConfigured(): boolean {
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim().length > 0) {
-    return true;
-  }
+function hasDiscretePgVars(): boolean {
   return Boolean(
     process.env.PGHOST &&
       process.env.PGHOST.trim().length > 0 &&
@@ -21,24 +18,18 @@ export function isDatabaseConfigured(): boolean {
   );
 }
 
+export function isDatabaseConfigured(): boolean {
+  return hasDiscretePgVars();
+}
+
 function createPool(): Pool {
   const useSsl = process.env.PGSSLMODE !== 'disable';
 
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim().length > 0) {
-    return new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 8000,
-      ssl: useSsl ? { rejectUnauthorized: false } : false,
-    });
-  }
-
   return new Pool({
-    host: process.env.PGHOST,
+    host: process.env.PGHOST!.trim(),
     port: Number(process.env.PGPORT || 5432),
-    database: process.env.PGDATABASE || 'postgres',
-    user: process.env.PGUSER,
+    database: (process.env.PGDATABASE || 'postgres').trim(),
+    user: process.env.PGUSER!.trim(),
     password: process.env.PGPASSWORD,
     max: 10,
     idleTimeoutMillis: 30000,
@@ -54,7 +45,7 @@ export function getDb(): Database | null {
   if (!poolInstance) {
     poolInstance = createPool();
     poolInstance.on('error', (err) => {
-      console.error('PostgreSQL pool error:', err.message);
+      console.warn('PostgreSQL idle pool warning:', err.message);
     });
   }
   if (!dbInstance) {
@@ -63,26 +54,86 @@ export function getDb(): Database | null {
   return dbInstance;
 }
 
+export function extractDbErrorMessage(err: unknown): {
+  message: string;
+  isConnectionError: boolean;
+} {
+  const errObj = err as { message?: string; code?: string; cause?: { message?: string; code?: string } } | null;
+  const causeMsg = errObj?.cause?.message;
+  const rootMsg = errObj?.message;
+  const code = errObj?.cause?.code || errObj?.code || '';
+  const combined = [causeMsg, rootMsg].filter(Boolean).join(' | ') || 'Unknown database error';
+
+  const isConnectionError =
+    /^(28P01|28000|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET|57P01|57P02|57P03)$/i.test(code) ||
+    /password authentication|ECIRCUITBREAKER|ECONNREFUSED|ETIMEDOUT|timeout|getaddrinfo|connection terminated|remaining connection slots/i.test(
+      combined
+    );
+
+  return {
+    message: causeMsg || rootMsg || 'Unknown database error',
+    isConnectionError,
+  };
+}
+
+function getNonSecretConnectionMeta(): {
+  source: 'PG_VARS' | 'none';
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+} {
+  if (hasDiscretePgVars()) {
+    return {
+      source: 'PG_VARS',
+      host: process.env.PGHOST!.trim(),
+      port: Number(process.env.PGPORT || 5432),
+      database: (process.env.PGDATABASE || 'postgres').trim(),
+      user: process.env.PGUSER!.trim(),
+    };
+  }
+  return { source: 'none' };
+}
+
 export async function testDatabaseConnection(): Promise<{
   configured: boolean;
   connected: boolean;
+  source?: string;
+  host?: string;
+  user?: string;
   error?: string;
 }> {
+  const meta = getNonSecretConnectionMeta();
   if (!isDatabaseConfigured()) {
-    return { configured: false, connected: false, error: 'Database environment variables not set' };
+    return {
+      configured: false,
+      connected: false,
+      source: meta.source,
+      error: 'Database environment variables not set',
+    };
   }
   try {
     getDb();
     if (!poolInstance) {
-      return { configured: false, connected: false };
+      return { configured: false, connected: false, source: meta.source };
     }
     await poolInstance.query('SELECT 1');
-    return { configured: true, connected: true };
+    return {
+      configured: true,
+      connected: true,
+      source: meta.source,
+      host: meta.host,
+      user: meta.user,
+    };
   } catch (err) {
+    const { message } = extractDbErrorMessage(err);
     return {
       configured: true,
       connected: false,
-      error: err instanceof Error ? err.message : 'Unknown database error',
+      source: meta.source,
+      host: meta.host,
+      user: meta.user,
+      error: message,
     };
   }
 }

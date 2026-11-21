@@ -392,6 +392,11 @@ export function TopBar({
                     <code className="px-1 py-0.5 bg-[#f4f2ec] rounded">PGPASSWORD</code> in Settings
                     Secrets to activate live authentication and database ingestion.
                   </p>
+                  {setupStatus?.error && (
+                    <p className="text-[11px] text-[#c75035] bg-[#faf3f0] px-2 py-1.5 rounded-lg break-words">
+                      {setupStatus.error}
+                    </p>
+                  )}
                 </div>
               ) : authUser ? (
                 <div className="space-y-3">

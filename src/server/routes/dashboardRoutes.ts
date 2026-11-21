@@ -1,7 +1,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { getDb, testDatabaseConnection } from '../../db/index.ts';
+import { extractDbErrorMessage, getDb, testDatabaseConnection } from '../../db/index.ts';
 import {
   fleetAlerts,
   robotActivityColumns,
@@ -132,15 +132,14 @@ dashboardRouter.get('/dashboard', async (req, res) => {
       alerts: alertRows,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Database query failed';
-    const isConnErr =
-      /password authentication|ECIRCUITBREAKER|ECONNREFUSED|ETIMEDOUT|timeout|getaddrinfo/i.test(
-        message
-      );
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    if (isConnectionError) {
+      console.warn('Dashboard PostgreSQL connection unavailable:', message);
+      res.status(503).json({ error: `PostgreSQL unavailable: ${message}` });
+      return;
+    }
     console.error('Dashboard query error:', message);
-    res
-      .status(isConnErr ? 503 : 500)
-      .json({ error: isConnErr ? `PostgreSQL unavailable: ${message}` : 'Failed to load warehouse dashboard data from PostgreSQL' });
+    res.status(500).json({ error: 'Failed to load warehouse dashboard data from PostgreSQL' });
   }
 });
 
@@ -158,8 +157,10 @@ dashboardRouter.get('/robots', async (_req, res) => {
       .orderBy(desc(robots.efficiency), asc(robots.id));
     res.json({ dataSource: 'postgresql', robots: rows });
   } catch (err) {
-    console.error('Robots list error:', err);
-    res.status(500).json({ error: 'Failed to fetch fleet robots' });
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    res.status(isConnectionError ? 503 : 500).json({
+      error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Failed to fetch fleet robots',
+    });
   }
 });
 
@@ -187,8 +188,10 @@ dashboardRouter.get('/robots/:id', async (req, res) => {
 
     res.json({ dataSource: 'postgresql', robot, telemetryLogs });
   } catch (err) {
-    console.error('Robot inspect error:', err);
-    res.status(500).json({ error: 'Failed to inspect robot' });
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    res.status(isConnectionError ? 503 : 500).json({
+      error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Failed to inspect robot',
+    });
   }
 });
 

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { and, eq, gt } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
-import { getDb, type Database } from '../db/index.ts';
+import { extractDbErrorMessage, getDb, type Database } from '../db/index.ts';
 import { apiKeys, authSessions, users } from '../db/schema.ts';
 
 export interface AuthUser {
@@ -229,8 +229,10 @@ export async function requireUserAuth(
     req.authTokenHash = resolved.tokenHash;
     next();
   } catch (err) {
-    console.error('Auth verification failed:', err);
-    res.status(500).json({ error: 'Authentication verification failed' });
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    res.status(isConnectionError ? 503 : 500).json({
+      error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Authentication verification failed',
+    });
   }
 }
 
@@ -313,7 +315,9 @@ export async function requireIngestAuth(
       error: 'Authentication required. Provide Authorization: Bearer <token> or X-API-Key header.',
     });
   } catch (err) {
-    console.error('Ingest auth error:', err);
-    res.status(500).json({ error: 'Ingest authentication failed' });
+    const { message, isConnectionError } = extractDbErrorMessage(err);
+    res.status(isConnectionError ? 503 : 500).json({
+      error: isConnectionError ? `PostgreSQL unavailable: ${message}` : 'Ingest authentication failed',
+    });
   }
 }

@@ -67,6 +67,7 @@ export interface AuthSetupStatus {
   dbConnected: boolean;
   needsBootstrap: boolean;
   hasPasscodeEnv: boolean;
+  error?: string;
 }
 
 export interface ApiKeySummary {

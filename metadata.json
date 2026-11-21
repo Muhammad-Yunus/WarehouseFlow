@@ -1,0 +1,6 @@
+{
+  "name": "Flowos — Warehouse Operations",
+  "description": "3D warehouse operations and autonomous mobile robot fleet management dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

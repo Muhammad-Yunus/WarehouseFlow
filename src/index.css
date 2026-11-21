@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-dots: 'Codystar', 'Plus Jakarta Sans', sans-serif;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    color: #1f2120;
+    background: #ebeae0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.font-dots {
+  font-family: var(--font-dots);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  -webkit-text-stroke: 0.45px currentColor;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Warm sage-ivory-stone ambient dashboard background matching reference */
+.flowos-canvas-bg {
+  background-color: #efefe9;
+  background-image:
+    radial-gradient(ellipse 68% 42% at 62% -4%, rgba(214, 222, 189, 0.72) 0%, rgba(214, 222, 189, 0) 68%),
+    radial-gradient(ellipse 55% 45% at 14% 8%, rgba(235, 227, 200, 0.85) 0%, rgba(235, 227, 200, 0) 70%),
+    radial-gradient(ellipse 50% 45% at 92% 18%, rgba(232, 225, 203, 0.65) 0%, rgba(232, 225, 203, 0) 72%),
+    radial-gradient(ellipse 65% 50% at 45% 46%, rgba(250, 250, 247, 0.92) 0%, rgba(242, 241, 236, 0.35) 75%),
+    linear-gradient(180deg, #eae8dc 0%, #efefe9 42%, #e6e7e1 100%);
+}
+
+/* Soft glass surface without backdrop-filter over WebGL */
+.glass-surface {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 2px 10px rgba(24, 28, 22, 0.035);
+}
+
+.glass-surface-strong {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(24, 28, 22, 0.055);
+}
+
+/* Production Overview coral-to-sage gradient */
+.production-card-bg {
+  background:
+    radial-gradient(110% 85% at 22% 12%, #ff633b 0%, rgba(255, 99, 59, 0.92) 34%, rgba(242, 130, 96, 0.55) 66%, rgba(186, 195, 178, 0.35) 100%),
+    linear-gradient(162deg, #f35a34 0%, #f17d5b 42%, #d8a995 72%, #b9c0b2 100%);
+  box-shadow: 0 14px 34px rgba(227, 94, 57, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+/* Battery Health bottom tile gradient */
+.battery-tile-bg {
+  background:
+    radial-gradient(95% 80% at 15% 15%, rgba(244, 108, 72, 0.86) 0%, rgba(244, 108, 72, 0) 75%),
+    radial-gradient(95% 80% at 85% 90%, rgba(132, 212, 146, 0.82) 0%, rgba(132, 212, 146, 0) 75%),
+    linear-gradient(145deg, #e78a6f 0%, #c9bfa3 52%, #a8d7a9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+/* Task Completion bottom tile gradient */
+.completion-tile-bg {
+  background:
+    radial-gradient(95% 80% at 20% 15%, rgba(164, 176, 151, 0.92) 0%, rgba(164, 176, 151, 0) 75%),
+    radial-gradient(95% 80% at 85% 90%, rgba(245, 105, 70, 0.88) 0%, rgba(245, 105, 70, 0) 75%),
+    linear-gradient(148deg, #a7b39b 0%, #d2b49f 52%, #ef7e60 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(31, 33, 32, 0.14);
+  border-radius: 9999px;
+}
